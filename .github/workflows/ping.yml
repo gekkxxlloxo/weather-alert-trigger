@@ -1,0 +1,33 @@
+name: 叫醒天气预警
+
+# 这个仓库存在的唯一原因：
+# 私有仓库 drive-weather-alert 自己的 cron 实测不触发（连一次性 cron 都不跑），
+# 而公开仓库的 cron 是可靠的（同账号的 ruls 每天稳定触发）。
+# 所以由这个公开仓库定时去「叫醒」私有仓库的预警 workflow。
+# 本仓库是公开的，但令牌放在 Actions Secrets 里，不会泄露。
+
+on:
+  schedule:
+    # cron 用 UTC。北京 00:00-06:00 休眠 = UTC 16:00-22:00，故只排 UTC 0-15 与 22-23。
+    # 分钟刻意选 :07 与 :37（避开整点/半点的高负载时段，GitHub 官方建议）。
+    - cron: '7,37 0-15 * * *'
+    - cron: '7,37 22-23 * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 触发私有仓库的预警检测
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "User-Agent: weather-alert-trigger" \
+            https://api.github.com/repos/gekkxxlloxo/drive-weather-alert/dispatches \
+            -d '{"event_type":"location-update"}')
+          echo "GitHub 返回 HTTP $code"
+          if [ "$code" != "204" ]; then
+            echo "::error::叫醒失败，HTTP $code"
+            exit 1
+          fi
